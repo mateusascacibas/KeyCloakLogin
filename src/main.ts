@@ -1,6 +1,15 @@
 import { bootstrapApplication } from '@angular/platform-browser';
-import { appConfig } from './app/app.config';
 import { AppComponent } from './app/app.component';
+import { HttpClientModule } from '@angular/common/http'; // Importando HttpClientModule
+import { KeycloakAngularModule, KeycloakService } from 'keycloak-angular'; // Keycloak
+import { provideRouter, RouterModule } from '@angular/router';
 
-bootstrapApplication(AppComponent, appConfig)
-  .catch((err) => console.error(err));
+bootstrapApplication(AppComponent, {
+  providers: [
+    HttpClientModule,
+    KeycloakAngularModule,
+    KeycloakService,
+    RouterModule,
+    provideRouter([]),
+  ], // Adicionando HttpClientModule e KeycloakService
+}).catch((err) => console.error(err));
