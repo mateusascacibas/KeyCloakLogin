@@ -1,118 +1,93 @@
-import { Component, OnInit } from '@angular/core';
-import { ActivatedRoute, Router, RouterModule } from '@angular/router';
-import { KeycloakAngularModule, KeycloakService } from 'keycloak-angular';
-import {
-  HttpClient,
-  HttpClientModule,
-  HttpHeaders,
-} from '@angular/common/http';
 import { CommonModule } from '@angular/common';
+import { Component, OnInit } from '@angular/core';
+import { KeycloakService } from 'keycloak-angular';
 
 @Component({
   selector: 'app-root',
   templateUrl: './app.component.html',
   styleUrls: ['./app.component.css'],
   standalone: true,
-  imports: [
-    CommonModule,
-    HttpClientModule,
-    RouterModule,
-    KeycloakAngularModule,
-  ],
+  imports: [CommonModule],
+  template: `
+    <div *ngIf="isLoggedIn; else notLoggedIn">
+      <h1>Bem-vindo!</h1>
+      <p>Token: {{ accessToken }}</p>
+      <button (click)="logout()">Logout</button>
+    </div>
+    <ng-template #notLoggedIn>
+      <button (click)="login()">Login</button>
+    </ng-template>
+  `,
 })
 export class AppComponent implements OnInit {
-  token: any;
-  authCode: string | undefined;
+  isLoggedIn = false;
+  token: any = {
+    access_token: null,
+    refresh_token: null,
+    id_token: null,
+  };
 
-  constructor(
-    public keycloak: KeycloakService,
-    private route: ActivatedRoute,
-    private router: Router,
-    private http: HttpClient
-  ) {}
+  constructor(private keycloakService: KeycloakService) {}
 
-  ngOnInit() {
-    const accessToken = localStorage.getItem('access_token');
-    const refreshToken = localStorage.getItem('refresh_token');
-    const idToken = localStorage.getItem('id_token');
-
-    if (accessToken && refreshToken) {
-      this.token = {
-        access_token: accessToken,
-        refresh_token: refreshToken,
-        id_token: idToken,
-      };
-    } else {
-      this.route.queryParams.subscribe((params) => {
-        if (params['code']) {
-          this.authCode = params['code'];
-          this.getToken();
-        }
-      });
+  async ngOnInit() {
+    try {
+      this.isLoggedIn = await this.keycloakService.isLoggedIn();
+      if (this.isLoggedIn) {
+        this.loadTokens();
+        console.log('Usuário autenticado. Token:', this.token.access_token);
+      } else {
+        console.log('Usuário não está autenticado.');
+      }
+    } catch (error) {
+      console.error('Erro ao verificar status do login:', error);
     }
   }
 
-  // Função para login, redirecionando para o Keycloak
-  login() {
-    const keycloakUrl = `http://localhost:8080/realms/projeto_empresa/protocol/openid-connect/auth?client_id=projeto_empresa_client&response_type=code&scope=openid&redirect_uri=http://localhost:4200/`;
-    window.location.href = keycloakUrl;
+  async loadTokens() {
+    try {
+      const keycloakInstance = this.keycloakService.getKeycloakInstance();
+      this.token.access_token = await this.keycloakService.getToken(); // Access Token
+      this.token.refresh_token = keycloakInstance.refreshToken; // Refresh Token
+      this.token.id_token = keycloakInstance.idToken; // ID Token
+      console.log('Tokens carregados:', this.token);
+    } catch (error) {
+      console.error('Erro ao carregar tokens:', error);
+    }
   }
 
-  // Função para logout
-  logout() {
-    this.keycloak.logout();
-    localStorage.removeItem('access_token');
-    localStorage.removeItem('refresh_token');
-    localStorage.removeItem('id_token');
-    this.token = null;
-    this.router.navigate(['/']);
+  login() {
+    this.keycloakService.login();
+  }
+
+  async logout() {
+    try {
+      // Garante que o KeycloakInstance esteja inicializado
+      if (!this.keycloakService.getKeycloakInstance()) {
+        console.log('Reinicializando Keycloak...');
+        await this.keycloakService.init({
+          config: {
+            url: 'http://localhost:8080',
+            realm: 'projeto_empresa',
+            clientId: 'projeto_empresa_client',
+          },
+          initOptions: {
+            onLoad: 'check-sso',
+            checkLoginIframe: false,
+          },
+        });
+      }
+
+      console.log('Chamando logout...');
+      await this.keycloakService.logout(window.location.origin);
+      console.log('Logout realizado com sucesso.');
+    } catch (error) {
+      console.error('Erro ao realizar logout:', error);
+    }
   }
 
   copyToClipboard(text: string) {
     navigator.clipboard.writeText(text).then(() => {
       alert('Token copiado para a área de transferência!');
     });
-  }
-
-  get isKeycloakLoggedIn(): boolean {
-    return !!this.keycloak.getKeycloakInstance()?.authenticated;
-  }
-
-  // Função para trocar o Authorization Code pelo Token
-  getToken() {
-    const tokenUrl =
-      'http://localhost:8080/realms/projeto_empresa/protocol/openid-connect/token';
-
-    const body = new URLSearchParams();
-    body.set('grant_type', 'authorization_code');
-    body.set('client_id', 'projeto_empresa_client');
-    body.set('client_secret', 'jjx1kwzGy6QVahZOINnNfUPwqG5enJ3e');
-    body.set('code', this.authCode as string);
-    body.set('redirect_uri', 'http://localhost:4200/');
-
-    const headers = new HttpHeaders({
-      'Content-Type': 'application/x-www-form-urlencoded',
-    });
-
-    this.http.post(tokenUrl, body.toString(), { headers }).subscribe(
-      (response: any) => {
-        console.log('Token recebido:', response);
-        this.token = response;
-        localStorage.setItem('access_token', response.access_token);
-        localStorage.setItem('refresh_token', response.refresh_token);
-        localStorage.setItem('id_token', response.id_token);
-
-        // Atualiza a UI
-        this.router.navigate(['/']); // Redireciona para a página principal
-      },
-      (error) => {
-        console.error('Erro ao obter token:', error);
-      }
-    );
-  }
-
-  get isLoggedIn(): boolean {
-    const accessToken = localStorage.getItem('access_token');
-    return !!accessToken;
   }
 }
